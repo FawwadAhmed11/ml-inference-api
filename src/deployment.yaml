@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-api
+  labels:
+    app: ml-api
+
+spec:
+  replicas: 2  # Start with 2 pods for HA
+
+  selector:
+    matchLabels:
+      app: ml-api
+
+  template:
+    metadata:
+      labels:
+        app: ml-api
+    spec:
+      containers:
+      - name: ml-api
+        image: ml-app:v2  # From Exercise 02
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 2Gi
+       
+        # Liveness probe: Restart pod if unhealthy
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60  # Wait for model to load
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # Readiness probe: Remove from service if not ready
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        env:
+        - name: MODEL_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: ml-api-config
+              key: model_name
+        - name: MODEL_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: ml-api-config
+              key: model_path
+        - name: DEBUG
+          valueFrom:
+            configMapKeyRef:
+              name: ml-api-config
+              key: debug
+        - name: DEVICE
+          valueFrom:
+            configMapKeyRef:
+              name: ml-api-config
+              key: device

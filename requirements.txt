@@ -1,0 +1,14 @@
+fastapi==0.104.1
+torch==2.12.0
+torchaudio==2.11.0
+torchvision==0.27.0
+uvicorn==0.24.0
+prometheus-client
+redis
+joblib
+pydantic-settings
+Pillow
+python-multipart
+slowapi
+prometheus-fastapi-instrumentator
+python-json-logger

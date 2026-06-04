@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-api-service
+  labels:
+    app: ml-api
+
+spec:
+  type: LoadBalancer  # For minikube, use NodePort or LoadBalancer
+
+  selector:
+    app: ml-api  # Must match deployment labels
+
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http

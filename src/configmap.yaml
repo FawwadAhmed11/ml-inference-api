@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ml-api-config
+
+data:
+  # Model configuration
+  model_name: "resnet18"
+  device: "cpu"
+  model_path: "/app/models/resnet18.pth"
+
+  # Server configuration
+  port: "8000"
+  debug: "info"
+  workers: "1"
+
+  # Feature flags
+  enable_metrics: "true"
+  enable_cache: "false"
+
+  # Inference settings
+  default_top_k: "5"
+  max_batch_size: "32"
