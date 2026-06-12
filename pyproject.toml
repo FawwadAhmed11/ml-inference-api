@@ -1,0 +1,23 @@
+# pyproject.toml
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "model_serve"
+version = "0.1.0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+
+[tool.pytest.ini_options]
+addopts = "-ra -q --strict-markers"
+markers = [
+    "unit: fast, no IO",
+    "contract: in-process HTTP",
+    "integration: containerized",
+    "consumer_contract: pact-style",
+]
+testpaths = ["tests"]
+

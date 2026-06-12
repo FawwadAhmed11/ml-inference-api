@@ -4,7 +4,7 @@ services:
   # ML API
   ml-api:
     build: .
-    image: model-serve:v1
+    image: model_serve:v1
     container_name: ml-api
     ports:
       - "8000:8000"
@@ -19,8 +19,8 @@ services:
       - ml-network
     restart: unless-stopped
     volumes: 
-      - ./src/model-serve/models:/app/models:ro
-      - ./src/model-serve/logs:/app/logs
+      - ./src/model_serve/models:/app/models:ro
+      - ./src/model_serve/logs:/app/logs
     environment:
       - MODEL_PATH=/app/models/resnet18.pth
       - LOG_LEVEL=info

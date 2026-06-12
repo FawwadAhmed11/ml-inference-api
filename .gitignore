@@ -7,5 +7,5 @@ logs/
 *.egg-info/
 dist/
 src/__pycache__/
-src/model-serve/models/
+src/model_serve/models/
 src/logs/

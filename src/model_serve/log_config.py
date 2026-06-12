@@ -1,7 +1,7 @@
 import logging
 from pythonjsonlogger import jsonlogger
 from pythonjsonlogger.json import JsonFormatter
-from middleware import RequestIdFilter
+from model_serve.middleware import RequestIdFilter
 
 
 

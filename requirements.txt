@@ -1,4 +1,4 @@
-fastapi==0.104.1
+fastapi==0.115.0
 torch==2.12.0
 torchaudio==2.11.0
 torchvision==0.27.0
@@ -12,3 +12,6 @@ python-multipart
 slowapi
 prometheus-fastapi-instrumentator
 python-json-logger
+starlette==0.38.0
+httpx==0.27.0
+testcontainers

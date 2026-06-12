@@ -8,7 +8,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 import time
 import os
 import logging
-from log_config import setup_json_logging
+from model_serve.log_config import setup_json_logging
 import sys
 from datetime import datetime
 import redis
@@ -17,7 +17,7 @@ import asyncio
 import joblib
 from pydantic import BaseModel 
 from PIL import Image
-from config import settings
+from model_serve.config import settings
 import torchvision.transforms as transforms
 import io
 import uuid
@@ -26,8 +26,9 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from contextvars import ContextVar
-from middleware import track_in_flight_requests, add_request_id, check_body_size, request_id_var
-
+from model_serve.middleware import track_in_flight_requests, add_request_id, check_body_size, request_id_var
+from fastapi import APIRouter
+from model_serve.ml.schemas import PredictRequest, PredictResponse
 
 
 
@@ -52,7 +53,8 @@ MODEL_INFO = Gauge(
     "Metadata about the deployed FastAPI model version",
     ["version", "model_name", "framework"]
 )
-
+setup_json_logging()
+logger = logging.getLogger("app_logger")
 
 
 MODEL_INFO.labels(version=MODEL_VERSION, model_name=MODEL_NAME, framework="pytorch").set(1)
@@ -77,7 +79,6 @@ model_confidence = Histogram(
 
 # os.environ["BATCH_SIZE"] = "128"
 
-model = None
 
 # Connect to Redis
 redis_client = redis.Redis(
@@ -86,6 +87,8 @@ redis_client = redis.Redis(
     decode_responses=True
 )
 
+# Initialize router
+router = APIRouter()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -100,28 +103,28 @@ async def lifespan(app: FastAPI):
     # --- SHUTDOWN LOGIC ---
     # Code here runs AFTER the application finishes handling requests
     print("Application is shutting down...")
-    
-app = FastAPI(lifespan=lifespan)
-
-setup_json_logging()
-logger = logging.getLogger("app_logger")
 
 
-app = FastAPI(lifespan=lifespan)
-# Middleware
-app.middleware("http")(track_in_flight_requests)
-app.middleware("http")(add_request_id)
-app.middleware("http")(check_body_size)
+def create_app() -> FastAPI:
+        
+    app = FastAPI(lifespan=lifespan)
+    app.include_router(router)
+    # Middleware
+    app.middleware("http")(track_in_flight_requests)
+    app.middleware("http")(add_request_id)
+    app.middleware("http")(check_body_size)
 
-# Register the error handler
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    # Register the error handler
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-# prometheus instrumentor
-Instrumentator(
-    should_group_status_codes=False,
-).instrument(app).expose(app)
+    # prometheus instrumentor
+    Instrumentator(
+        should_group_status_codes=False,
+    ).instrument(app).expose(app)
+
+    return app 
 
 
 
@@ -143,11 +146,12 @@ def preprocess(image_bytes: bytes):
 #     return 
 
 
-@app.post("/v1/predict")
-async def predict(image: UploadFile):
+# @app.post("/v1/predict")
+@router.post("/v1/predict")
+async def predict(image: UploadFile, request: Request):
     start_time = time.time()
     try: 
-        model = app.state.model
+        model = request.app.state.model
         if model is None:
             raise HTTPException(status_code=503, detail="Model not loaded")
         # load image
@@ -160,7 +164,8 @@ async def predict(image: UploadFile):
         
         result = {
             "prediction": predicted,
-            "latency_ms": (time.time() - start_time) * 1000 
+            "latency_ms": (time.time() - start_time) * 1000,
+            "model_version": MODEL_VERSION 
         }
         predictions.labels(class_id=predicted).inc()
         return result
@@ -178,13 +183,13 @@ async def predict(image: UploadFile):
 
 
 
-@app.post("/v1/predict/batch")
-async def BatchRequest(inputs: list[UploadFile]):
+@router.post("/v1/predict/batch")
+async def BatchRequest(inputs: list[UploadFile], request: Request):
     start_time = time.time()
     try:
         
         batch = []
-        model = app.state.model
+        model = request.app.state.model
         results = []
         if model is None:
             raise HTTPException(status_code=503, detail="Model not loaded")
@@ -232,14 +237,42 @@ async def BatchRequest(inputs: list[UploadFile]):
         latency.observe(time.time() - start_time)
 
 
+@router.post("/v1/predict/json", response_model=PredictResponse)
+async def predict_json(body: PredictRequest, request: Request):
+    start_time = time.time()
+    try: 
+        model = request.app.state.model
+        if model is None:
+            raise HTTPException(status_code=503, detail="Model not loaded")
+        tensor = torch.tensor(body.features).unsqueeze(0)
+        # perform prediction
+        with torch.no_grad():
+            output = await asyncio.to_thread(model, tensor)
+            predicted = output.argmax(1).item()
+        
+        result = {
+            "prediction": predicted,
+            "latency_ms": (time.time() - start_time) * 1000,
+            "model_version": MODEL_VERSION 
+        }
+        predictions.labels(class_id=predicted).inc()
+        return result
+    
+
+    except Exception as e:
+        logger.error(f"prediction failed : {e}")
+        raise HTTPException(500, str(e))
+
+    finally:
+        latency.observe(time.time() - start_time)
+
 
 #Get
 custom_rate_limit = os.environ.get("custom_rate_limit", "5/minute")
 
-@app.get("/")
+@router.get("/")
 @limiter.limit(custom_rate_limit)
-
-def root():
+def root(request: Request):
     logger.info("Root endpoint was accessed successfully, logger works")
     logger.info(f"Request_id: {request_id_var.get()}")
 
@@ -251,7 +284,7 @@ def root():
     }
 
 
-@app.get("/health")
+@router.get("/health")
 @limiter.limit(custom_rate_limit)
 def health(request: Request):
     
@@ -263,7 +296,7 @@ def health(request: Request):
     logger.info(f"Request_id: {request_id_var.get()}")
     return {
         "status": "healthy",
-        "model_loaded": model is not None,
+        "model_loaded": request.app.state.model is not None,
         "request_id": current_request_id,
         "torch_version": torch.__version__,
 
@@ -283,7 +316,7 @@ request_duration = Histogram(
 )
 
 
-@app.get("/info")
+@router.get("/info")
 @limiter.limit(custom_rate_limit)
 def info(request: Request):
     logger.info("Info endpoint called")
@@ -291,6 +324,7 @@ def info(request: Request):
     start_time = time.time()
     
     try:
+        model = request.app.state.model
         # Check cache
         cache_key = "model_info"
         cached = redis_client.get(cache_key)
@@ -322,3 +356,6 @@ def info(request: Request):
     finally:
         duration = time.time() - start_time
         request_duration.labels(endpoint='info').observe(duration)
+
+
+app = create_app()

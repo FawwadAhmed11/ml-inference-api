@@ -153,7 +153,7 @@ git clone https://github.com/FawwadAhmed11/ml-inference-api.git
 cd ml-inference-api
 
 # Add your model weights (not included in repo)
-# Place resnet18.pth in src/model-serve/models/
+# Place resnet18.pth in src/model_serve/models/
 
 docker-compose up --build
 ```
@@ -180,6 +180,27 @@ kubectl apply -f src/hpa.yaml
 minikube service ml-api-service --url
 ```
 
+
+
+---
+## Testing
+
+### Unit tests
+Fast, no external dependencies. Tests schema validation logic.
+```bash
+pytest tests/unit/ -v
+```
+
+### Integration tests
+Spins up the full Docker Compose stack via testcontainers, runs real HTTP traffic, verifies metrics are exposed end-to-end. Requires Docker.
+```bash
+pytest tests/integration/ -v
+```
+
+### Run all tests
+```bash
+pytest -v
+```
 ---
 
 ## Kubernetes Configuration
@@ -214,21 +235,32 @@ Base: python:3.11-slim
 
 ```
 ml-inference-api/
-├── Dockerfile                    # Multi-stage build, non-root appuser, 267MB
+├── Dockerfile                    # Multi-stage build, non-root appuser, ~280MB
 ├── docker-compose.yaml           # Full stack: API + Redis + Prometheus + Grafana
 ├── prometheus.yaml               # Prometheus scrape config
+├── pyproject.toml                # Package config + pytest settings
 ├── requirements.txt
-├── .gitignore
 └── src/
-    ├── configmap.yaml            # K8s ConfigMap (MODEL_PATH, BATCH_SIZE, RATE_LIMIT)
+    ├── configmap.yaml            # K8s ConfigMap
     ├── deployment.yaml           # K8s Deployment, 2 replicas, rolling update
     ├── service.yaml              # K8s LoadBalancer Service
     ├── hpa.yaml                  # HPA: 2-10 replicas, 70% CPU / 80% memory
-    └── model-serve/
-        ├── app.py                # FastAPI application, endpoints, metrics
-        ├── middleware.py         # Request ID, body size, in-flight gauge
+    └── model_serve/
+        ├── app.py                # FastAPI app, endpoints, metrics, APIRouter
         ├── config.py             # Pydantic BaseSettings
-        └── log_config.py        # JSON logging + RequestIdFilter
+        ├── log_config.py         # JSON logging + RequestIdFilter
+        ├── middleware.py         # Request ID (contextvars), body size, in-flight gauge
+        └── ml/
+            └── schemas.py        # PredictRequest + PredictResponse Pydantic models
+└── tests/
+    ├── unit/
+    │   └── test_schema.py        # Schema validation unit tests
+    ├── contract/
+    │   ├── conftest.py           # TestClient fixture with mocked model + Redis
+    │   └── test_predict.py
+    └── integration/
+        ├── conftest.py           # testcontainers DockerCompose fixture
+        └── test_observability.py # Verifies metrics endpoint end-to-end
 ```
 
 
